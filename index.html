@@ -64,7 +64,7 @@
 
   <div id="video-wrapper">
     <video id="video" playsinline></video>
-    <canvas id="canvas"></canvas>
+    <canvas id="canvas" width="640" height="480"></canvas>
     <div id="rec-indicator">● REC</div>
   </div>
 
@@ -75,10 +75,10 @@
 
   <div id="log"></div>
 
-  <!-- MediaPipe JS -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+  <!-- MediaPipe JS (古いPoseソリューション 0.2 を利用) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.2/pose.js" crossorigin="anonymous"></script>
 
   <script>
     const videoElement = document.getElementById('video');
@@ -93,6 +93,38 @@
     let frameCount = 0;
     let csvLines = [];
 
+    // Pose インスタンス（★ここを修正：new Pose(...)）
+    const pose = new Pose({
+      locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.2/${file}`;
+      }
+    });
+    pose.setOptions({
+      upperBodyOnly: false,
+      smoothLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    pose.onResults(onResults);
+
+    // カメラ開始（★ここも修正：new Camera(...)）
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await pose.send({ image: videoElement });
+      },
+      width: 640,
+      height: 480
+    });
+
+    async function startCamera() {
+      try {
+        await camera.start();
+        logElem.textContent = "カメラ開始 OK";
+      } catch (e) {
+        logElem.textContent = "カメラ開始エラー: " + e;
+      }
+    }
+
     function onResults(results) {
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -101,12 +133,14 @@
       if (results.poseLandmarks) {
         const landmarks = results.poseLandmarks;
 
-        window.drawConnectors(canvasCtx, landmarks, window.POSE_CONNECTIONS,
+        // 骨格描画
+        drawConnectors(canvasCtx, landmarks, POSE_CONNECTIONS,
           { color: '#00FF00', lineWidth: 3 });
 
-        window.drawLandmarks(canvasCtx, landmarks,
+        drawLandmarks(canvasCtx, landmarks,
           { color: '#FF0000', lineWidth: 1, radius: 4 });
 
+        // 録画中ならCSVへ
         if (recording) {
           landmarks.forEach((lm, idx) => {
             const line = [
@@ -123,37 +157,6 @@
       }
 
       canvasCtx.restore();
-    }
-
-    const pose = new Pose.Pose({
-      locateFile: (file) => {
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
-      }
-    });
-    pose.setOptions({
-      modelComplexity: 1,
-      smoothLandmarks: true,
-      enableSegmentation: false,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
-    pose.onResults(onResults);
-
-    const camera = new Camera.Camera(videoElement, {
-      onFrame: async () => {
-        await pose.send({ image: videoElement });
-      },
-      width: 640,
-      height: 480
-    });
-
-    async function startCamera() {
-      try {
-        await camera.start();
-        logElem.textContent = "カメラ開始 OK";
-      } catch (e) {
-        logElem.textContent = "カメラ開始エラー: " + e;
-      }
     }
 
     function toggleRecording() {
@@ -179,12 +182,10 @@
           const content = [header, ...csvLines].join('\n');
           const blob = new Blob([content], { type: 'text/csv' });
           const url = URL.createObjectURL(blob);
-
           const a = document.createElement('a');
           a.href = url;
           a.download = `pose_${timestamp}.csv`;
           a.click();
-
           URL.revokeObjectURL(url);
           logElem.textContent = `録画停止 / CSV 行数: ${csvLines.length}`;
         } else {
@@ -194,7 +195,6 @@
     }
 
     toggleBtn.addEventListener('click', toggleRecording);
-
     window.addEventListener('load', startCamera);
   </script>
 </body>
