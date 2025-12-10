@@ -75,7 +75,7 @@
 
   <div id="log"></div>
 
-  <!-- MediaPipe JS (古いPoseソリューション 0.2 を利用) -->
+  <!-- MediaPipe JS（公式サンプルと同じ構成） -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.2/pose.js" crossorigin="anonymous"></script>
@@ -93,21 +93,23 @@
     let frameCount = 0;
     let csvLines = [];
 
-    // Pose インスタンス（★ここを修正：new Pose(...)）
+    // ---- Pose 初期化（公式JS版と同じ書き方）----
     const pose = new Pose({
       locateFile: (file) => {
         return `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.2/${file}`;
       }
     });
+
     pose.setOptions({
       upperBodyOnly: false,
       smoothLandmarks: true,
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5
     });
+
     pose.onResults(onResults);
 
-    // カメラ開始（★ここも修正：new Camera(...)）
+    // ---- カメラ初期化 ----
     const camera = new Camera(videoElement, {
       onFrame: async () => {
         await pose.send({ image: videoElement });
@@ -125,6 +127,7 @@
       }
     }
 
+    // ---- Pose の結果を受け取って描画 ----
     function onResults(results) {
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -133,14 +136,16 @@
       if (results.poseLandmarks) {
         const landmarks = results.poseLandmarks;
 
-        // 骨格描画
+        // 骨格描画（公式サンプルと同じ関数名）
         drawConnectors(canvasCtx, landmarks, POSE_CONNECTIONS,
-          { color: '#00FF00', lineWidth: 3 });
-
+                       { color: '#00FF00', lineWidth: 3 });
         drawLandmarks(canvasCtx, landmarks,
-          { color: '#FF0000', lineWidth: 1, radius: 4 });
+                      { color: '#FF0000', lineWidth: 2 });
 
-        // 録画中ならCSVへ
+        // デバッグ用：検出できてるかログに出す
+        logElem.textContent = `landmarks: ${landmarks.length}`;
+
+        // 録画中なら CSV に追加
         if (recording) {
           landmarks.forEach((lm, idx) => {
             const line = [
@@ -154,11 +159,14 @@
           });
           frameCount++;
         }
+      } else {
+        logElem.textContent = "landmarks: 0（検出なし）";
       }
 
       canvasCtx.restore();
     }
 
+    // ---- 録画トグル ----
     function toggleRecording() {
       if (!recording) {
         recording = true;
@@ -195,6 +203,8 @@
     }
 
     toggleBtn.addEventListener('click', toggleRecording);
+
+    // ページ読み込み時にカメラ開始
     window.addEventListener('load', startCamera);
   </script>
 </body>
