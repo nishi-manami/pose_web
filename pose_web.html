@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>Web Pose Recorder</title>
+  <style>
+    body {
+      margin: 0;
+      background: #111;
+      color: #fff;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #video-wrapper {
+      position: relative;
+      width: 640px;
+      height: 480px;
+      margin-top: 20px;
+    }
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 640px;
+      height: 480px;
+    }
+    #controls {
+      margin-top: 20px;
+    }
+    #rec-indicator {
+      font-weight: bold;
+      color: red;
+      visibility: hidden;
+      position:absolute; 
+      top:10px; 
+      left:10px;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 18px;
+      cursor: pointer;
+      border-radius: 8px;
+      border: none;
+      background: #0078ff;
+      color: white;
+    }
+    button.recording {
+      background: #ff2d2d;
+    }
+    #log {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #ccc;
+      max-width: 640px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h2>Web Pose Recorder (MediaPipe JS)</h2>
+  <p>ボタンで録画開始 / 停止（CSV自動DL）</p>
+
+  <div id="video-wrapper">
+    <video id="video" playsinline></video>
+    <canvas id="canvas"></canvas>
+    <div id="rec-indicator">● REC</div>
+  </div>
+
+  <div id="controls">
+    <button id="toggle-btn">録画開始</button>
+    <span id="status-text">録画停止中</span>
+  </div>
+
+  <div id="log"></div>
+
+  <!-- MediaPipe JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+
+  <script>
+    const videoElement = document.getElementById('video');
+    const canvasElement = document.getElementById('canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const recIndicator = document.getElementById('rec-indicator');
+    const toggleBtn = document.getElementById('toggle-btn');
+    const statusText = document.getElementById('status-text');
+    const logElem = document.getElementById('log');
+
+    let recording = false;
+    let frameCount = 0;
+    let csvLines = [];
+
+    function onResults(results) {
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.poseLandmarks) {
+        const landmarks = results.poseLandmarks;
+
+        window.drawConnectors(canvasCtx, landmarks, window.POSE_CONNECTIONS,
+          { color: '#00FF00', lineWidth: 3 });
+
+        window.drawLandmarks(canvasCtx, landmarks,
+          { color: '#FF0000', lineWidth: 1, radius: 4 });
+
+        if (recording) {
+          landmarks.forEach((lm, idx) => {
+            const line = [
+              frameCount,
+              idx,
+              lm.x.toFixed(6),
+              lm.y.toFixed(6),
+              lm.z.toFixed(6)
+            ].join(',');
+            csvLines.push(line);
+          });
+          frameCount++;
+        }
+      }
+
+      canvasCtx.restore();
+    }
+
+    const pose = new Pose.Pose({
+      locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+      }
+    });
+    pose.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      enableSegmentation: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    pose.onResults(onResults);
+
+    const camera = new Camera.Camera(videoElement, {
+      onFrame: async () => {
+        await pose.send({ image: videoElement });
+      },
+      width: 640,
+      height: 480
+    });
+
+    async function startCamera() {
+      try {
+        await camera.start();
+        logElem.textContent = "カメラ開始 OK";
+      } catch (e) {
+        logElem.textContent = "カメラ開始エラー: " + e;
+      }
+    }
+
+    function toggleRecording() {
+      if (!recording) {
+        recording = true;
+        frameCount = 0;
+        csvLines = [];
+        recIndicator.style.visibility = 'visible';
+        statusText.textContent = '録画中';
+        toggleBtn.textContent = '録画停止';
+        toggleBtn.classList.add("recording");
+        logElem.textContent = "録画開始";
+      } else {
+        recording = false;
+        recIndicator.style.visibility = 'hidden';
+        statusText.textContent = '録画停止中';
+        toggleBtn.textContent = '録画開始';
+        toggleBtn.classList.remove("recording");
+
+        if (csvLines.length > 0) {
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const header = 'frame,landmark_index,x,y,z';
+          const content = [header, ...csvLines].join('\n');
+          const blob = new Blob([content], { type: 'text/csv' });
+          const url = URL.createObjectURL(blob);
+
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `pose_${timestamp}.csv`;
+          a.click();
+
+          URL.revokeObjectURL(url);
+          logElem.textContent = `録画停止 / CSV 行数: ${csvLines.length}`;
+        } else {
+          logElem.textContent = "録画停止（データなし）";
+        }
+      }
+    }
+
+    toggleBtn.addEventListener('click', toggleRecording);
+
+    window.addEventListener('load', startCamera);
+  </script>
+</body>
+</html>
